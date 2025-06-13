@@ -1,12 +1,13 @@
 """
 OpenAlex Works Downloader - Streamlit Web Interface
-Version 4.0 - Now with Local Journal Quartile Lookup
+Version 4.0.1 - Local Journal Quartile Lookup (Force Redeploy)
 
 A simple web app that allows students to paste OpenAlex works URLs and download
 the complete results as CSV files with accurate journal quartile information.
 Designed to handle up to ~50 concurrent users on a modest server (2 vCPU, 4GB RAM) 
 thanks to async I/O and Streamlit's built-in session management.
 
+Last Updated: June 13, 2025 - Deployed with simplified UI and local quartiles
 Usage: streamlit run app.py
 """
 

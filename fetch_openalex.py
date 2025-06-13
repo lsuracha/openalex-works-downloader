@@ -494,7 +494,7 @@ async def fetch_openalex_works(url: str, progress_callback=None, include_quality
     works = await fetcher.fetch_all_pages(url, progress_callback)
     
     if include_quartiles:
-        return await flatten_works_to_dataframe_with_quartiles(works, fetcher)
+        return flatten_works_to_dataframe_with_quartiles(works, fetcher)
     elif include_quality:
         return await flatten_works_to_dataframe_with_quality(works, fetcher)
     else:
@@ -563,7 +563,7 @@ async def main_cli():
         sys.exit(1)
 
 
-async def flatten_works_to_dataframe_with_quartiles(works: List[Dict], fetcher: OpenAlexFetcher = None) -> pd.DataFrame:
+def flatten_works_to_dataframe_with_quartiles(works: List[Dict], fetcher: OpenAlexFetcher = None) -> pd.DataFrame:
     """
     Convert raw OpenAlex works to a flattened DataFrame with local journal quartile information.
     

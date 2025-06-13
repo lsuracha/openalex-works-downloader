@@ -209,7 +209,7 @@ class OpenAlexFetcher:
         
         return all_works
     
-    async def fetch_journal_quartile_local(self, issn_list: List[str]) -> Dict[str, str]:
+    def fetch_journal_quartile_local(self, issn_list: List[str]) -> Dict[str, str]:
         """
         Fetch journal quartile information from local CSV file (much faster than external APIs).
         
@@ -604,7 +604,7 @@ async def flatten_works_to_dataframe_with_quartiles(works: List[Dict], fetcher: 
         # Get quartile information from local lookup
         quartile_data = {"quartile": "", "sjr_score": "", "h_index": "", "category": ""}
         if fetcher and journal_issn_list:
-            quartile_data = await fetcher.fetch_journal_quartile_local(journal_issn_list)
+            quartile_data = fetcher.fetch_journal_quartile_local(journal_issn_list)
         
         # Use journal_category from quartile data if available, otherwise use journal_name
         final_journal_name = quartile_data["category"] if quartile_data["category"] else journal_name

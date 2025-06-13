@@ -23,9 +23,9 @@ def validate_openalex_url(url: str) -> bool:
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def cached_fetch_openalex_works(url: str) -> pd.DataFrame:
+def cached_fetch_openalex_works(url: str, include_quartiles: bool = False) -> pd.DataFrame:
     """Cached wrapper for async OpenAlex fetching."""
-    return asyncio.run(fetch_openalex_works(url))
+    return asyncio.run(fetch_openalex_works(url, include_quartiles=include_quartiles))
 
 
 def main():
@@ -48,6 +48,17 @@ def main():
         placeholder="https://openalex.org/works?filter=publication_year:2023,type:journal-article",
         help="Example: https://openalex.org/works?filter=institutions.id:I27837315"
     )
+    
+    # Options section
+    with st.expander("⚙️ Advanced Options", expanded=False):
+        include_quartiles = st.checkbox(
+            "Include Journal Quartiles (Q1-Q4)",
+            value=False,
+            help="Fetch official journal quartiles from SCImago Journal Rank. This will make the download slower but provides accurate Q1-Q4 rankings."
+        )
+        
+        if include_quartiles:
+            st.info("🔍 **Journal quartile lookup enabled**: This fetches official Q1-Q4 rankings from SCImago Journal Rank database. Download will be slower but more comprehensive.")
     
     # Validate URL and enable/disable fetch button
     is_valid_url = validate_openalex_url(url)
@@ -86,8 +97,13 @@ def main():
             # Fetch data with progress updates
             # Note: We can't pass the callback directly to cached function,
             # so we'll use a simpler approach for the Streamlit version
-            with st.spinner("Fetching OpenAlex data..."):
-                df = cached_fetch_openalex_works(url)
+            if include_quartiles:
+                status_text.text("Fetching OpenAlex data with journal quartiles...")
+                with st.spinner("Fetching OpenAlex data and SJR quartiles (this may take longer)..."):
+                    df = cached_fetch_openalex_works(url, include_quartiles=True)
+            else:
+                with st.spinner("Fetching OpenAlex data..."):
+                    df = cached_fetch_openalex_works(url, include_quartiles=False)
             
             # Complete progress
             progress_bar.progress(1.0)
@@ -131,8 +147,13 @@ def main():
                 type="primary"
             )
             
-            st.info("💡 **Tip**: The download includes all available data with columns like author names, "
-                   "publication year, DOI, citation counts, and more!")
+            tip_message = "💡 **Tip**: The download includes all available data with columns like author names, "
+            if include_quartiles:
+                tip_message += "journal quartiles (Q1-Q4), SJR scores, publication year, DOI, citation counts, and more!"
+            else:
+                tip_message += "publication year, DOI, citation counts, and more! Enable 'Journal Quartiles' option for Q1-Q4 rankings."
+            
+            st.info(tip_message)
             
         except Exception as e:
             st.error(f"❌ Error fetching data: {str(e)}")

@@ -1,5 +1,5 @@
 """
-OpenAlex Works Downloader - Streamlit Web Interface
+Research Reference Downloader - Streamlit Web Interface
 Version 4.0.1 - Local Journal Quartile Lookup (Force Redeploy)
 
 A simple web app that allows students to paste OpenAlex works URLs and download
@@ -33,18 +33,18 @@ def cached_fetch_openalex_works(url: str) -> pd.DataFrame:
 def main():
     """Main Streamlit app."""
     st.set_page_config(
-        page_title="OpenAlex Works Downloader",
+        page_title="Research Reference Downloader",
         page_icon="📚",
         layout="centered"
     )
     
     # Display logo
     try:
-        st.image("stylor_academy_words.svg", width=300)
+        st.image("stylor_academy_words.svg", width=200)
     except:
         pass  # If logo file not found, continue without it
     
-    st.title("📚 OpenAlex Works Downloader")
+    st.title("📚 Research Reference Downloader")
     st.markdown("""
     Paste any OpenAlex works URL (with your filters) and download the complete dataset as CSV with **accurate journal quartile information (Q1-Q4)**.
     Perfect for research projects, bibliometric analysis, and academic studies.

@@ -1,0 +1,4 @@
+id,title,publication_year,doi,primary_location.source.host_organization_lineage,open_access.is_oa,cited_by_count,authorships.author.display_name,abstract
+https://openalex.org/W4321794881,Official Methods of Analysis,2023,https://doi.org/10.1093/9780197610145.002.001,[],True,27363,,
+https://openalex.org/W4320013936,Generative Adversarial Nets,2023,https://doi.org/10.1007/978-3-658-40442-0_9,['https://openalex.org/P4310319965'],False,20617,Raphael Labaca-Castro,
+https://openalex.org/W4367314869,The Presentation of Self in Everyday Life,2023,https://doi.org/10.4324/9781003320609-59,['https://openalex.org/P4310320449'],False,17444,Erving Goffman,

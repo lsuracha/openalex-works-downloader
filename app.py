@@ -1,5 +1,6 @@
 """
 OpenAlex Works Downloader - Streamlit Web Interface
+Version 2.0 - Now with SJR Journal Quartile Integration
 
 A simple web app that allows students to paste OpenAlex works URLs and download
 the complete results as CSV files. Designed to handle up to ~50 concurrent users

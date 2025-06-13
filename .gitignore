@@ -21,9 +21,7 @@ coverage.xml
 .hypothesis
 
 # CSV exports (don't commit user data)
-openalex_export_*.csv
-openalex_concepts.csv
-openalex_keywords*.csv
+*.csv
 
 # OS
 .DS_Store

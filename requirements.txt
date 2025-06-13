@@ -1,5 +1,5 @@
-streamlit
-aiohttp
-pandas
-python-dateutil
-tqdm
+streamlit>=1.40.0
+aiohttp>=3.8.0
+pandas>=1.5.0
+python-dateutil>=2.8.0
+tqdm>=4.64.0

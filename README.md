@@ -1,6 +1,6 @@
 # OpenAlex Works Downloader
 
-A simple web application that allows students and researchers to download complete OpenAlex datasets as CSV files without any coding required.
+A simple web application that allows students and researchers to download complete OpenAlex datasets as CSV files with accurate journal quartile information, no coding required.
 
 ## 🎯 Features
 
@@ -9,9 +9,9 @@ A simple web application that allows students and researchers to download comple
 - **Fast & Scalable**: Handles up to 50+ concurrent users with async processing
 - **Smart Caching**: Prevents duplicate API calls when multiple users request the same data
 - **Real-time Progress**: Shows download progress with live updates
-- **Lightning-Fast Journal Quality Metrics**: Get Q1-Q4 journal rankings using OpenAlex's own fast API
+- **📚 Accurate Journal Quartiles**: Built-in Q1-Q4 journal rankings using local SJR database (31,000+ journals)
+- **⚡ Lightning Fast**: No external API dependencies for journal rankings - all lookups are local
 - **User-Friendly Output**: Clean CSV with readable abstracts and author names
-- **⚡ Fast Journal Quality Metrics**: Optional Q1-Q4 journal rankings using OpenAlex's native quality metrics (lightning fast!)
 
 ## 🚀 Quick Start
 
@@ -48,7 +48,7 @@ streamlit run app.py
 
 The downloaded CSV includes:
 - **title**: Publication title
-- **journal_name**: Journal name (if available)
+- **journal_name**: Journal name (preferring journal_category when available)
 - **journal_issn**: Journal ISSN numbers (semicolon-separated)
 - **publication_year**: Year of publication
 - **doi**: Digital Object Identifier (if available)
@@ -57,21 +57,24 @@ The downloaded CSV includes:
 - **authorships.author.display_name**: All authors (semicolon-separated)
 - **abstract**: Full abstract text (when available)
 
-### Optional Journal Quality Metrics (when enabled):
-- **journal_quality_tier**: Q1, Q2, Q3, or Q4 ranking based on OpenAlex metrics
-- **journal_impact_estimate**: 2-year mean citedness (impact factor estimate)
-- **journal_h_index**: Journal h-index
-- **journal_total_works**: Total number of works published by the journal
+### Standard Journal Quartile Information (Always Included):
+- **journal_quartile**: Q1, Q2, Q3, or Q4 ranking based on SJR (SCImago Journal Rank)
+- **sjr_score**: SCImago Journal Rank score
+- **journal_category**: Journal subject category/title from SJR database
+- **journal_h_index**: Journal h-index from SJR database
 
 ## 🛠 Command Line Usage
 
 You can also use the tool from the command line:
 
 ```bash
-# Basic usage (no journal quality metrics)
+# Standard usage with journal quartiles (default behavior)
 python fetch_openalex.py "https://openalex.org/works?filter=publication_year:2023&per-page=10"
 
-# With fast journal quality metrics (Q1-Q4 rankings)
+# Without journal quartiles (faster for large datasets)
+python fetch_openalex.py "https://openalex.org/works?filter=publication_year:2023&per-page=10" --no-quartiles
+
+# With OpenAlex journal quality metrics (optional, in addition to quartiles)
 python fetch_openalex.py "https://openalex.org/works?filter=publication_year:2023&per-page=10" --quality
 ```
 
@@ -81,10 +84,8 @@ python fetch_openalex.py "https://openalex.org/works?filter=publication_year:202
 - **Rate Limiting**: 3 concurrent requests with 0.1s delays
 - **Caching**: 1-hour TTL to reduce API load
 - **Capacity**: Designed for ~50 concurrent users on modest hardware
-- **⚡ Performance**: Lightning-fast journal quality lookups using OpenAlex's native Sources API (no external scraping!)
-- **Rate Limiting**: 3 concurrent requests with 0.1s delays
-- **Caching**: 1-hour TTL to reduce API load
-- **Capacity**: Designed for ~50 concurrent users on modest hardware
+- **📚 Journal Quartiles**: Local CSV lookup with 31,000+ journals for instant SJR rankings
+- **🚀 Performance**: No external API dependencies for quartile lookup - all data is local
 
 ## 📝 License
 

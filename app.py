@@ -1,11 +1,11 @@
 """
 OpenAlex Works Downloader - Streamlit Web Interface
-Version 3.0 - Now with Fast Journal Quality Metrics
+Version 4.0 - Now with Local Journal Quartile Lookup
 
 A simple web app that allows students to paste OpenAlex works URLs and download
-the complete results as CSV files. Designed to handle up to ~50 concurrent users
-on a modest server (2 vCPU, 4GB RAM) thanks to async I/O and Streamlit's
-built-in session management.
+the complete results as CSV files with accurate journal quartile information.
+Designed to handle up to ~50 concurrent users on a modest server (2 vCPU, 4GB RAM) 
+thanks to async I/O and Streamlit's built-in session management.
 
 Usage: streamlit run app.py
 """
@@ -24,9 +24,9 @@ def validate_openalex_url(url: str) -> bool:
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def cached_fetch_openalex_works(url: str, include_quality: bool = False) -> pd.DataFrame:
-    """Cached wrapper for async OpenAlex fetching."""
-    return asyncio.run(fetch_openalex_works(url, include_quality=include_quality))
+def cached_fetch_openalex_works(url: str) -> pd.DataFrame:
+    """Cached wrapper for async OpenAlex fetching with quartile lookup."""
+    return asyncio.run(fetch_openalex_works(url, include_quality=False, include_quartiles=True))
 
 
 def main():
@@ -37,9 +37,15 @@ def main():
         layout="centered"
     )
     
+    # Display logo
+    try:
+        st.image("stylor_academy_words.svg", width=300)
+    except:
+        pass  # If logo file not found, continue without it
+    
     st.title("📚 OpenAlex Works Downloader")
     st.markdown("""
-    Paste any OpenAlex works URL (with your filters) and download the complete dataset as CSV.
+    Paste any OpenAlex works URL (with your filters) and download the complete dataset as CSV with **accurate journal quartile information (Q1-Q4)**.
     Perfect for research projects, bibliometric analysis, and academic studies.
     """)
     
@@ -50,22 +56,14 @@ def main():
         help="Example: https://openalex.org/works?filter=institutions.id:I27837315"
     )
     
-    # Options section
-    with st.expander("⚙️ Advanced Options", expanded=False):
-        include_quality = st.checkbox(
-            "Include Journal Quality Metrics (Q1-Q4)",
-            value=False,
-            help="Fetch journal quality metrics from OpenAlex including estimated impact factor, h-index, and quality tier (Q1-Q4). Uses OpenAlex's own fast API!"
-        )
-        
-        if include_quality:
-            st.info("⚡ **Fast journal quality lookup enabled**: Uses OpenAlex's own journal metrics including 2-year impact estimates, h-index, and calculated quality tiers. Lightning fast!")
-    
     # Validate URL and enable/disable fetch button
     is_valid_url = validate_openalex_url(url)
     
     if url and not is_valid_url:
         st.error("❌ Please enter a valid OpenAlex URL starting with 'https://openalex.org/'")
+    
+    # Info about journal quartiles
+    st.info("📚 **Automatic journal quartile lookup enabled**: All downloads include accurate Q1-Q4 journal rankings based on SJR database with over 31,000 journals!")
     
     # Fetch button
     if st.button("🔍 Fetch Data", disabled=not is_valid_url, type="primary"):
@@ -95,16 +93,10 @@ def main():
             # Show initial status
             status_text.text("Starting download...")
             
-            # Fetch data with progress updates
-            # Note: We can't pass the callback directly to cached function,
-            # so we'll use a simpler approach for the Streamlit version
-            if include_quality:
-                status_text.text("Fetching OpenAlex data with journal quality metrics...")
-                with st.spinner("Fetching OpenAlex data and journal quality metrics (fast lookup)..."):
-                    df = cached_fetch_openalex_works(url, include_quality=True)
-            else:
-                with st.spinner("Fetching OpenAlex data..."):
-                    df = cached_fetch_openalex_works(url, include_quality=False)
+            # Fetch data with quartile information
+            status_text.text("Fetching OpenAlex data with journal quartiles...")
+            with st.spinner("Fetching OpenAlex data and journal quartiles (local lookup)..."):
+                df = cached_fetch_openalex_works(url)
             
             # Complete progress
             progress_bar.progress(1.0)
@@ -149,10 +141,7 @@ def main():
             )
             
             tip_message = "💡 **Tip**: The download includes all available data with columns like author names, "
-            if include_quality:
-                tip_message += "journal quality tiers (Q1-Q4), impact estimates, h-index, publication year, DOI, citation counts, and more!"
-            else:
-                tip_message += "publication year, DOI, citation counts, and more! Enable 'Journal Quality Metrics' option for Q1-Q4 rankings."
+            tip_message += "journal quartiles (Q1-Q4), SJR scores, h-index, publication year, DOI, citation counts, and more!"
             
             st.info(tip_message)
             

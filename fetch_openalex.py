@@ -14,6 +14,116 @@ from typing import Dict, List, Optional
 import aiohttp
 import pandas as pd
 from tqdm import tqdm
+import os
+
+
+def normalize_issn(issn: str) -> str:
+    """
+    Normalize ISSN to a consistent format for lookup.
+    Removes hyphens, spaces, and converts to uppercase.
+    
+    Args:
+        issn: ISSN in any format (e.g., "1234-5678", "12345678")
+    
+    Returns:
+        Normalized ISSN string (e.g., "12345678")
+    """
+    if not issn:
+        return ""
+    return issn.replace("-", "").replace(" ", "").strip().upper()
+
+
+class LocalJournalLookup:
+    """Local journal quartile lookup using journal_info.csv file."""
+    
+    def __init__(self, csv_path: str = "journal_info.csv"):
+        self.csv_path = csv_path
+        self.lookup_table = {}
+        self.loaded = False
+    
+    def load_journal_data(self):
+        """Load journal information from CSV file into memory."""
+        if self.loaded:
+            return
+        
+        if not os.path.exists(self.csv_path):
+            print(f"Warning: Journal lookup file {self.csv_path} not found. Quartile lookup disabled.")
+            self.loaded = True
+            return
+        
+        try:
+            # Read the CSV file
+            df = pd.read_csv(self.csv_path)
+            
+            # Expected columns: Title, Issn, SJR, SJR Best Quartile, H index
+            required_cols = ['Issn', 'SJR Best Quartile']
+            if not all(col in df.columns for col in required_cols):
+                print(f"Warning: Required columns {required_cols} not found in {self.csv_path}")
+                self.loaded = True
+                return
+            
+            # Build lookup table
+            for _, row in df.iterrows():
+                issn_str = str(row['Issn']).strip('"')  # Remove quotes
+                if pd.isna(issn_str) or not issn_str:
+                    continue
+                
+                # Split multiple ISSNs (comma or semicolon separated)
+                issns = issn_str.replace(';', ',').split(',')
+                
+                quartile = str(row['SJR Best Quartile']).strip()
+                sjr_score = str(row.get('SJR', '')).replace(',', '') if 'SJR' in row else ''
+                h_index = str(row.get('H index', '')) if 'H index' in row else ''
+                title = str(row.get('Title', '')) if 'Title' in row else ''
+                
+                # Create entry for each ISSN
+                for issn in issns:
+                    normalized_issn = normalize_issn(issn)
+                    if normalized_issn:
+                        self.lookup_table[normalized_issn] = {
+                            'quartile': quartile,
+                            'sjr_score': sjr_score,
+                            'h_index': h_index,
+                            'title': title
+                        }
+            
+            print(f"📚 Loaded {len(self.lookup_table)} journal ISSN mappings from {self.csv_path}")
+            self.loaded = True
+            
+        except Exception as e:
+            print(f"Error loading journal data from {self.csv_path}: {e}")
+            self.loaded = True
+    
+    def lookup_by_issn(self, issn_list: List[str]) -> Dict[str, str]:
+        """
+        Look up journal information by ISSN.
+        
+        Args:
+            issn_list: List of ISSNs to search for
+            
+        Returns:
+            Dictionary with quartile and other info, or empty values if not found
+        """
+        if not self.loaded:
+            self.load_journal_data()
+        
+        if not issn_list or not self.lookup_table:
+            return {"quartile": "", "sjr_score": "", "h_index": "", "category": ""}
+        
+        # Try each ISSN until we find a match
+        for issn in issn_list:
+            normalized = normalize_issn(issn)
+            if normalized in self.lookup_table:
+                entry = self.lookup_table[normalized]
+                return {
+                    "quartile": entry['quartile'],
+                    "sjr_score": entry['sjr_score'],
+                    "h_index": entry['h_index'],
+                    "category": entry['title']  # Using title as category for now
+                }
+        
+        # No match found
+        return {"quartile": "", "sjr_score": "", "h_index": "", "category": ""}
 
 
 class OpenAlexFetcher:
@@ -23,7 +133,7 @@ class OpenAlexFetcher:
         self.max_concurrent = max_concurrent
         self.delay = delay
         self.semaphore = asyncio.Semaphore(max_concurrent)
-        self.sjr_cache = {}  # Cache SJR data to avoid repeated lookups
+        self.journal_lookup = LocalJournalLookup()  # Local journal lookup instead of cache
     
     async def fetch_page(self, session: aiohttp.ClientSession, url: str) -> Optional[Dict]:
         """Fetch a single page from OpenAlex API."""
@@ -99,6 +209,18 @@ class OpenAlexFetcher:
         
         return all_works
     
+    async def fetch_journal_quartile_local(self, issn_list: List[str]) -> Dict[str, str]:
+        """
+        Fetch journal quartile information from local CSV file (much faster than external APIs).
+        
+        Args:
+            issn_list: List of ISSNs to look up
+            
+        Returns:
+            Dictionary with quartile metrics: {quartile, sjr_score, h_index, category}
+        """
+        return self.journal_lookup.lookup_by_issn(issn_list)
+
     async def fetch_journal_quality_fast(self, session: aiohttp.ClientSession, source_id: str) -> Dict[str, str]:
         """
         Fetch journal quality metrics from OpenAlex Sources API (much faster than SCImago).
@@ -114,8 +236,8 @@ class OpenAlexFetcher:
             return {"impact_factor_estimate": "", "h_index": "", "quality_tier": "", "total_works": ""}
         
         cache_key = f"source_{source_id}"
-        if cache_key in self.sjr_cache:
-            return self.sjr_cache[cache_key]
+        # Note: This function is kept for backward compatibility but now uses OpenAlex lookup
+        # The local quartile lookup is the preferred method
         
         try:
             # Fetch journal metadata from OpenAlex Sources API
@@ -142,7 +264,6 @@ class OpenAlexFetcher:
                             "total_works": str(total_works) if total_works else ""
                         }
                         
-                        self.sjr_cache[cache_key] = result
                         await asyncio.sleep(self.delay)
                         return result
                         
@@ -151,7 +272,6 @@ class OpenAlexFetcher:
         
         # No data found
         result = {"impact_factor_estimate": "", "h_index": "", "quality_tier": "", "total_works": ""}
-        self.sjr_cache[cache_key] = result
         return result
     
     def calculate_quality_tier(self, impact_factor: float, h_index: int, total_works: int) -> str:
@@ -357,14 +477,15 @@ def flatten_works_to_dataframe(works: List[Dict]) -> pd.DataFrame:
     return pd.DataFrame(flattened)
 
 
-async def fetch_openalex_works(url: str, progress_callback=None, include_quality: bool = True) -> pd.DataFrame:
+async def fetch_openalex_works(url: str, progress_callback=None, include_quality: bool = False, include_quartiles: bool = False) -> pd.DataFrame:
     """
     Main async function to fetch and flatten OpenAlex works.
     
     Args:
         url: OpenAlex works URL with filters
         progress_callback: Optional callback for progress updates
-        include_quality: Whether to fetch journal quality information (faster OpenAlex-based metrics)
+        include_quality: Whether to fetch journal quality information (OpenAlex-based metrics)
+        include_quartiles: Whether to fetch journal quartile information (local CSV lookup)
         
     Returns:
         pandas DataFrame with flattened works data
@@ -372,7 +493,9 @@ async def fetch_openalex_works(url: str, progress_callback=None, include_quality
     fetcher = OpenAlexFetcher()
     works = await fetcher.fetch_all_pages(url, progress_callback)
     
-    if include_quality:
+    if include_quartiles:
+        return await flatten_works_to_dataframe_with_quartiles(works, fetcher)
+    elif include_quality:
         return await flatten_works_to_dataframe_with_quality(works, fetcher)
     else:
         return flatten_works_to_dataframe(works)
@@ -387,20 +510,22 @@ def generate_filename() -> str:
 async def main_cli():
     """CLI interface for standalone usage."""
     if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print("Usage: python fetch_openalex.py 'https://openalex.org/works?...' [--quality]")
-        print("  --quality: Include fast journal quality information (Q1-Q4 tiers)")
+        print("Usage: python fetch_openalex.py 'https://openalex.org/works?...' [--no-quartiles]")
+        print("  --no-quartiles: Disable journal quartile information (quartiles enabled by default)")
         sys.exit(1)
     
     url = sys.argv[1]
-    include_quality = len(sys.argv) == 3 and sys.argv[2] == "--quality"
+    include_quartiles = not (len(sys.argv) == 3 and sys.argv[2] == "--no-quartiles")
     
     if not url.startswith("https://openalex.org/"):
         print("Error: URL must start with 'https://openalex.org/'")
         sys.exit(1)
     
     print(f"Fetching OpenAlex works from: {url}")
-    if include_quality:
-        print("📊 Fast journal quality lookup enabled (using OpenAlex metrics)")
+    if include_quartiles:
+        print("📚 Journal quartile lookup enabled (using journal_info.csv)")
+    else:
+        print("📊 Basic export mode (no quartile information)")
     
     # Progress bar for CLI
     pbar = None
@@ -414,7 +539,7 @@ async def main_cli():
         pbar.refresh()
     
     try:
-        df = await fetch_openalex_works(url, progress_callback, include_quality)
+        df = await fetch_openalex_works(url, progress_callback, include_quality=False, include_quartiles=include_quartiles)
         
         if pbar is not None:
             pbar.close()
@@ -427,15 +552,90 @@ async def main_cli():
         df.to_csv(filename, index=False, encoding='utf-8')
         print(f"\nSaved {len(df)} records to {filename}")
         
-        if include_quality:
-            quality_count = (df.get('journal_quality_tier', pd.Series()) != '').sum()
-            print(f"📊 Found quality information for {quality_count} journals")
+        if include_quartiles:
+            quartile_count = (df.get('journal_quartile', pd.Series()) != '').sum()
+            print(f"📚 Found quartile information for {quartile_count} journals")
         
     except Exception as e:
         if pbar is not None:
             pbar.close()
         print(f"Error: {e}")
         sys.exit(1)
+
+
+async def flatten_works_to_dataframe_with_quartiles(works: List[Dict], fetcher: OpenAlexFetcher = None) -> pd.DataFrame:
+    """
+    Convert raw OpenAlex works to a flattened DataFrame with local journal quartile information.
+    
+    Args:
+        works: List of raw work dictionaries from OpenAlex API
+        fetcher: OpenAlexFetcher instance for quartile lookups
+        
+    Returns:
+        pandas DataFrame with flattened, selected columns including journal quartile metrics
+    """
+    if not works:
+        return pd.DataFrame()
+
+    flattened = []
+    
+    # Load journal lookup data once
+    if fetcher:
+        fetcher.journal_lookup.load_journal_data()
+    
+    for work in works:
+        # Extract author names and join with semicolons
+        authors = []
+        for authorship in work.get("authorships", []):
+            author = authorship.get("author", {})
+            if author and author.get("display_name"):
+                authors.append(author["display_name"])
+        authors_str = "; ".join(authors)
+        
+        # Extract journal information
+        primary_location = work.get("primary_location", {})
+        source = primary_location.get("source", {}) if primary_location else {}
+        
+        # Extract journal name and ISSN
+        journal_name = source.get("display_name", "") if source else ""
+        journal_issn_list = source.get("issn", []) if source else []
+        journal_issn = "; ".join(journal_issn_list) if journal_issn_list else ""
+        
+        # Get quartile information from local lookup
+        quartile_data = {"quartile": "", "sjr_score": "", "h_index": "", "category": ""}
+        if fetcher and journal_issn_list:
+            quartile_data = await fetcher.fetch_journal_quartile_local(journal_issn_list)
+        
+        # Use journal_category from quartile data if available, otherwise use journal_name
+        final_journal_name = quartile_data["category"] if quartile_data["category"] else journal_name
+        
+        # Extract open access info
+        open_access = work.get("open_access", {})
+        is_oa = open_access.get("is_oa", False) if open_access else False
+        
+        # Reconstruct abstract from inverted index
+        abstract_text = ""
+        if work.get("abstract_inverted_index"):
+            abstract_text = reconstruct_abstract_from_inverted_index(work["abstract_inverted_index"])
+        
+        flattened_work = {
+            "title": work.get("title", ""),
+            "journal_name": final_journal_name,
+            "journal_issn": journal_issn,
+            "journal_quartile": quartile_data["quartile"],
+            "sjr_score": quartile_data["sjr_score"],
+            "journal_h_index": quartile_data["h_index"],
+            "publication_year": work.get("publication_year"),
+            "doi": work.get("doi", ""),
+            "open_access.is_oa": is_oa,
+            "cited_by_count": work.get("cited_by_count", 0),
+            "authorships.author.display_name": authors_str,
+            "abstract": abstract_text
+        }
+        
+        flattened.append(flattened_work)
+    
+    return pd.DataFrame(flattened)
 
 
 async def flatten_works_to_dataframe_with_quality(works: List[Dict], fetcher: OpenAlexFetcher = None) -> pd.DataFrame:

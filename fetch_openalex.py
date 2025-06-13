@@ -99,68 +99,99 @@ class OpenAlexFetcher:
         
         return all_works
     
-    async def fetch_sjr_quartile(self, session: aiohttp.ClientSession, issn_list: List[str], year: int = None) -> Dict[str, str]:
+    async def fetch_journal_quality_fast(self, session: aiohttp.ClientSession, source_id: str) -> Dict[str, str]:
         """
-        Fetch journal quartile information from SCImago Journal Rank database.
+        Fetch journal quality metrics from OpenAlex Sources API (much faster than SCImago).
         
         Args:
             session: aiohttp client session
-            issn_list: List of ISSNs for the journal
-            year: Publication year (optional, defaults to most recent)
+            source_id: OpenAlex source ID (e.g., "S137773608")
             
         Returns:
-            Dictionary with SJR metrics: {quartile, sjr_score, category, h_index}
+            Dictionary with quality metrics: {impact_factor_estimate, h_index, quality_tier, total_works}
         """
-        if not issn_list:
-            return {"quartile": "", "sjr_score": "", "category": "", "h_index": ""}
+        if not source_id:
+            return {"impact_factor_estimate": "", "h_index": "", "quality_tier": "", "total_works": ""}
         
-        # Try each ISSN until we find a match
-        for issn in issn_list:
-            # Clean ISSN format (remove hyphens for API calls)
-            clean_issn = issn.replace("-", "")
-            cache_key = f"{clean_issn}_{year or 'latest'}"
+        cache_key = f"source_{source_id}"
+        if cache_key in self.sjr_cache:
+            return self.sjr_cache[cache_key]
+        
+        try:
+            # Fetch journal metadata from OpenAlex Sources API
+            url = f"https://api.openalex.org/sources/{source_id}"
             
-            if cache_key in self.sjr_cache:
-                return self.sjr_cache[cache_key]
-            
-            try:
-                # Use SCImago CSV export API
-                # This searches for journals by ISSN and returns CSV data
-                base_url = "https://www.scimagojr.com/journalrank.php"
-                params = {
-                    'country': 'all',
-                    'category': 'all', 
-                    'area': 'all',
-                    'year': year or 2023,  # Default to most recent year
-                    'order': 'sjr',
-                    'min': 0,
-                    'min_type': 'cd',
-                    'out': 'xls',  # CSV format
-                    'search': issn
-                }
-                
-                async with self.semaphore:
-                    async with session.get(base_url, params=params) as response:
-                        if response.status == 200:
-                            # Parse CSV response to extract quartile info
-                            text = await response.text()
-                            result = self.parse_sjr_response(text, issn)
-                            self.sjr_cache[cache_key] = result
-                            await asyncio.sleep(self.delay)
-                            return result
+            async with self.semaphore:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
                         
-            except Exception as e:
-                print(f"Error fetching SJR data for ISSN {issn}: {e}")
-                continue
+                        # Extract quality metrics
+                        summary_stats = data.get("summary_stats", {})
+                        impact_estimate = summary_stats.get("2yr_mean_citedness", 0)
+                        h_index = summary_stats.get("h_index", 0)
+                        total_works = data.get("works_count", 0)
+                        
+                        # Calculate quality tier based on OpenAlex metrics
+                        quality_tier = self.calculate_quality_tier(impact_estimate, h_index, total_works)
+                        
+                        result = {
+                            "impact_factor_estimate": str(round(impact_estimate, 2)) if impact_estimate else "",
+                            "h_index": str(h_index) if h_index else "",
+                            "quality_tier": quality_tier,
+                            "total_works": str(total_works) if total_works else ""
+                        }
+                        
+                        self.sjr_cache[cache_key] = result
+                        await asyncio.sleep(self.delay)
+                        return result
+                        
+        except Exception as e:
+            print(f"Error fetching journal quality data for source {source_id}: {e}")
         
-        # No data found for any ISSN
-        result = {"quartile": "", "sjr_score": "", "category": "", "h_index": ""}
-        for issn in issn_list:
-            clean_issn = issn.replace("-", "")
-            cache_key = f"{clean_issn}_{year or 'latest'}"
-            self.sjr_cache[cache_key] = result
-        
+        # No data found
+        result = {"impact_factor_estimate": "", "h_index": "", "quality_tier": "", "total_works": ""}
+        self.sjr_cache[cache_key] = result
         return result
+    
+    def calculate_quality_tier(self, impact_factor: float, h_index: int, total_works: int) -> str:
+        """
+        Calculate journal quality tier based on OpenAlex metrics.
+        
+        Args:
+            impact_factor: 2-year mean citedness
+            h_index: Journal h-index
+            total_works: Total number of publications
+        
+        Returns:
+            Quality tier: Q1, Q2, Q3, Q4, or empty string
+        """
+        # High-quality journals (Q1): High impact and h-index
+        if impact_factor >= 10.0 and h_index >= 200:
+            return "Q1"
+        elif impact_factor >= 5.0 and h_index >= 100:
+            return "Q1"
+        elif impact_factor >= 3.0 and h_index >= 80:
+            return "Q1"
+        
+        # Good journals (Q2): Moderate impact and h-index
+        elif impact_factor >= 2.0 and h_index >= 50:
+            return "Q2"
+        elif impact_factor >= 1.5 and h_index >= 30:
+            return "Q2"
+        
+        # Average journals (Q3): Some impact
+        elif impact_factor >= 1.0 and h_index >= 20:
+            return "Q3"
+        elif impact_factor >= 0.5 and h_index >= 10:
+            return "Q3"
+        
+        # Lower-tier journals (Q4): Lower metrics but still indexed
+        elif h_index >= 5 and total_works >= 100:
+            return "Q4"
+        
+        # Insufficient data or very low quality
+        return ""
     
     def parse_sjr_response(self, csv_text: str, target_issn: str) -> Dict[str, str]:
         """
@@ -326,14 +357,14 @@ def flatten_works_to_dataframe(works: List[Dict]) -> pd.DataFrame:
     return pd.DataFrame(flattened)
 
 
-async def fetch_openalex_works(url: str, progress_callback=None, include_quartiles: bool = True) -> pd.DataFrame:
+async def fetch_openalex_works(url: str, progress_callback=None, include_quality: bool = True) -> pd.DataFrame:
     """
     Main async function to fetch and flatten OpenAlex works.
     
     Args:
         url: OpenAlex works URL with filters
         progress_callback: Optional callback for progress updates
-        include_quartiles: Whether to fetch SJR quartile information (slower but more accurate)
+        include_quality: Whether to fetch journal quality information (faster OpenAlex-based metrics)
         
     Returns:
         pandas DataFrame with flattened works data
@@ -341,8 +372,8 @@ async def fetch_openalex_works(url: str, progress_callback=None, include_quartil
     fetcher = OpenAlexFetcher()
     works = await fetcher.fetch_all_pages(url, progress_callback)
     
-    if include_quartiles:
-        return await flatten_works_to_dataframe_with_sjr(works, fetcher)
+    if include_quality:
+        return await flatten_works_to_dataframe_with_quality(works, fetcher)
     else:
         return flatten_works_to_dataframe(works)
 
@@ -356,20 +387,20 @@ def generate_filename() -> str:
 async def main_cli():
     """CLI interface for standalone usage."""
     if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print("Usage: python fetch_openalex.py 'https://openalex.org/works?...' [--quartiles]")
-        print("  --quartiles: Include SJR journal quartile information (slower)")
+        print("Usage: python fetch_openalex.py 'https://openalex.org/works?...' [--quality]")
+        print("  --quality: Include fast journal quality information (Q1-Q4 tiers)")
         sys.exit(1)
     
     url = sys.argv[1]
-    include_quartiles = len(sys.argv) == 3 and sys.argv[2] == "--quartiles"
+    include_quality = len(sys.argv) == 3 and sys.argv[2] == "--quality"
     
     if not url.startswith("https://openalex.org/"):
         print("Error: URL must start with 'https://openalex.org/'")
         sys.exit(1)
     
     print(f"Fetching OpenAlex works from: {url}")
-    if include_quartiles:
-        print("📊 Journal quartile lookup enabled (this will be slower)")
+    if include_quality:
+        print("📊 Fast journal quality lookup enabled (using OpenAlex metrics)")
     
     # Progress bar for CLI
     pbar = None
@@ -383,7 +414,7 @@ async def main_cli():
         pbar.refresh()
     
     try:
-        df = await fetch_openalex_works(url, progress_callback, include_quartiles)
+        df = await fetch_openalex_works(url, progress_callback, include_quality)
         
         if pbar is not None:
             pbar.close()
@@ -396,9 +427,9 @@ async def main_cli():
         df.to_csv(filename, index=False, encoding='utf-8')
         print(f"\nSaved {len(df)} records to {filename}")
         
-        if include_quartiles:
-            quartile_count = (df['journal_quartile'] != '').sum()
-            print(f"📊 Found quartile information for {quartile_count} journals")
+        if include_quality:
+            quality_count = (df.get('journal_quality_tier', pd.Series()) != '').sum()
+            print(f"📊 Found quality information for {quality_count} journals")
         
     except Exception as e:
         if pbar is not None:
@@ -407,33 +438,56 @@ async def main_cli():
         sys.exit(1)
 
 
-async def flatten_works_to_dataframe_with_sjr(works: List[Dict], fetcher: OpenAlexFetcher = None) -> pd.DataFrame:
+async def flatten_works_to_dataframe_with_quality(works: List[Dict], fetcher: OpenAlexFetcher = None) -> pd.DataFrame:
     """
-    Convert raw OpenAlex works to a flattened DataFrame with SJR quartile information.
+    Convert raw OpenAlex works to a flattened DataFrame with fast journal quality information.
     
     Args:
         works: List of raw work dictionaries from OpenAlex API
-        fetcher: OpenAlexFetcher instance for SJR lookups
+        fetcher: OpenAlexFetcher instance for quality lookups
         
     Returns:
-        pandas DataFrame with flattened, selected columns including SJR quartiles
+        pandas DataFrame with flattened, selected columns including journal quality metrics
     """
     if not works:
         return pd.DataFrame()
     
     flattened = []
     
-    # Set up session for SJR lookups if fetcher is provided
+    # Set up session for quality lookups if fetcher is provided
     if fetcher:
         headers = {
             'User-Agent': 'OpenAlex-Fetcher/1.0 (mailto:research@university.edu)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            'Accept': 'application/json'
         }
         session = aiohttp.ClientSession(headers=headers)
+        
+        # STEP 1: Collect all unique journal source IDs to minimize API calls
+        unique_sources = {}  # source_id -> source_id mapping (for deduplication)
+        for work in works:
+            primary_location = work.get("primary_location", {})
+            source = primary_location.get("source", {}) if primary_location else {}
+            source_id = source.get("id", "") if source else ""
+            
+            if source_id and source_id.startswith("https://openalex.org/S"):
+                # Extract source ID (e.g., "S137773608" from full URL)
+                clean_source_id = source_id.split("/")[-1]
+                unique_sources[clean_source_id] = clean_source_id
+        
+        # STEP 2: Batch fetch quality data for all unique sources
+        print(f"Fetching quality data for {len(unique_sources)} unique journals...")
+        quality_lookup = {}  # source_id -> quality_data mapping
+        
+        for source_id in unique_sources.keys():
+            quality_data = await fetcher.fetch_journal_quality_fast(session, source_id)
+            quality_lookup[source_id] = quality_data
+            
     else:
         session = None
+        quality_lookup = {}
     
     try:
+        # STEP 3: Process each work using the pre-fetched quality data
         for work in works:
             # Extract author names and join with semicolons
             authors = []
@@ -452,11 +506,13 @@ async def flatten_works_to_dataframe_with_sjr(works: List[Dict], fetcher: OpenAl
             journal_issn_list = source.get("issn", []) if source else []
             journal_issn = "; ".join(journal_issn_list) if journal_issn_list else ""
             
-            # Fetch SJR quartile information
-            sjr_data = {"quartile": "", "sjr_score": "", "category": "", "h_index": ""}
-            if fetcher and session and journal_issn_list:
-                publication_year = work.get("publication_year")
-                sjr_data = await fetcher.fetch_sjr_quartile(session, journal_issn_list, publication_year)
+            # Get quality information from pre-fetched data
+            quality_data = {"impact_factor_estimate": "", "h_index": "", "quality_tier": "", "total_works": ""}
+            source_id = source.get("id", "") if source else ""
+            if source_id and source_id.startswith("https://openalex.org/S"):
+                clean_source_id = source_id.split("/")[-1]
+                if clean_source_id in quality_lookup:
+                    quality_data = quality_lookup[clean_source_id]
             
             # Extract open access info
             open_access = work.get("open_access", {})
@@ -471,10 +527,10 @@ async def flatten_works_to_dataframe_with_sjr(works: List[Dict], fetcher: OpenAl
                 "title": work.get("title", ""),
                 "journal_name": journal_name,
                 "journal_issn": journal_issn,
-                "journal_quartile": sjr_data["quartile"],
-                "sjr_score": sjr_data["sjr_score"],
-                "journal_category": sjr_data["category"],
-                "journal_h_index": sjr_data["h_index"],
+                "journal_quality_tier": quality_data["quality_tier"],
+                "journal_impact_estimate": quality_data["impact_factor_estimate"],
+                "journal_h_index": quality_data["h_index"],
+                "journal_total_works": quality_data["total_works"],
                 "publication_year": work.get("publication_year"),
                 "doi": work.get("doi", ""),
                 "open_access.is_oa": is_oa,

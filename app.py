@@ -43,10 +43,12 @@ def main():
     col1, col2 = st.columns([1, 4])
     
     with col1:
+        st.markdown("<div style='margin-top: 20px;'>", unsafe_allow_html=True)
         try:
             st.image("stylor_academy_words.svg", width=150)
         except:
             pass  # If logo file not found, continue without it
+        st.markdown("</div>", unsafe_allow_html=True)
     
     with col2:
         st.markdown("""

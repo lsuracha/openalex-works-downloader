@@ -49,7 +49,11 @@ def main():
             pass  # If logo file not found, continue without it
     
     with col2:
-        st.markdown("# Research Reference Downloader")
+        st.markdown("""
+        <div style="display: flex; align-items: center; height: 100px;">
+            <h2 style="margin: 0; font-size: 2.2rem; font-weight: 600;">Research Reference Downloader</h2>
+        </div>
+        """, unsafe_allow_html=True)
     st.markdown("""
     Paste any OpenAlex works URL (with your filters) and download the complete dataset as CSV with **accurate journal quartile information (Q1-Q4)**.
     Perfect for research projects, bibliometric analysis, and academic studies.

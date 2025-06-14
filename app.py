@@ -35,7 +35,8 @@ def main():
     st.set_page_config(
         page_title="Research Reference Downloader",
         page_icon="📚",
-        layout="centered"
+        layout="centered",
+        initial_sidebar_state="collapsed"
     )
     
     # Display logo

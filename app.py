@@ -39,13 +39,17 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
-    # Display logo
-    try:
-        st.image("stylor_academy_words.svg", width=200)
-    except:
-        pass  # If logo file not found, continue without it
+    # Display logo inline with title
+    col1, col2 = st.columns([1, 4])
     
-    st.title("📚 Research Reference Downloader")
+    with col1:
+        try:
+            st.image("stylor_academy_words.svg", width=150)
+        except:
+            pass  # If logo file not found, continue without it
+    
+    with col2:
+        st.markdown("# Research Reference Downloader")
     st.markdown("""
     Paste any OpenAlex works URL (with your filters) and download the complete dataset as CSV with **accurate journal quartile information (Q1-Q4)**.
     Perfect for research projects, bibliometric analysis, and academic studies.

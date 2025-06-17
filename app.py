@@ -25,9 +25,9 @@ def validate_openalex_url(url: str) -> bool:
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def cached_fetch_openalex_works(url: str) -> pd.DataFrame:
+def cached_fetch_openalex_works(url: str, max_pages: int = None) -> pd.DataFrame:
     """Cached wrapper for async OpenAlex fetching with quartile lookup."""
-    return asyncio.run(fetch_openalex_works(url, include_quality=False, include_quartiles=True))
+    return asyncio.run(fetch_openalex_works(url, include_quality=False, include_quartiles=True, max_pages=max_pages))
 
 
 def main():
@@ -77,6 +77,28 @@ def main():
     # Info about journal quartiles
     st.info("📚 **Automatic journal quartile lookup enabled**: All downloads include accurate Q1-Q4 journal rankings based on SJR database with over 31,000 journals!")
     
+    # Download size options
+    with st.expander("⚙️ Download Options", expanded=False):
+        download_option = st.radio(
+            "Choose download size:",
+            options=[
+                ("Quick sample (1,000 records)", 5),
+                ("Medium dataset (10,000 records)", 50), 
+                ("Large dataset (50,000 records)", 250),
+                ("Complete dataset (all available records)", None)
+            ],
+            format_func=lambda x: x[0],
+            index=1,  # Default to medium
+            help="Larger datasets take longer to process. Start with a sample to test your query."
+        )
+        max_pages = download_option[1]
+        
+        if max_pages is None:
+            st.warning("⚠️ **Complete dataset**: This will download ALL available records, which could be millions! This may take a very long time and use significant bandwidth.")
+        else:
+            estimated_records = max_pages * 200
+            st.info(f"📊 This will download approximately **{estimated_records:,} records** (up to {max_pages} pages of 200 records each).")
+    
     # Fetch button
     if st.button("🔍 Fetch Data", disabled=not is_valid_url, type="primary"):
         if not is_valid_url:
@@ -108,7 +130,7 @@ def main():
             # Fetch data with quartile information
             status_text.text("Fetching OpenAlex data with journal quartiles...")
             with st.spinner("Fetching OpenAlex data and journal quartiles (local lookup)..."):
-                df = cached_fetch_openalex_works(url)
+                df = cached_fetch_openalex_works(url, max_pages=max_pages)
             
             # Complete progress
             progress_bar.progress(1.0)

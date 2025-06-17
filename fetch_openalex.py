@@ -160,13 +160,14 @@ class OpenAlexFetcher:
                 print(f"Error fetching {url}: {e}")
                 return None
     
-    async def fetch_all_pages(self, base_url: str, progress_callback=None) -> List[Dict]:
+    async def fetch_all_pages(self, base_url: str, progress_callback=None, max_pages: int = None) -> List[Dict]:
         """
-        Fetch all pages following OpenAlex pagination cursors.
+        Fetch all pages using page-based pagination (more reliable than cursor-based).
         
         Args:
             base_url: Initial OpenAlex works URL with filters
             progress_callback: Optional callback(page_num, total_records) for progress
+            max_pages: Optional limit on number of pages to fetch (for testing/safety)
             
         Returns:
             List of all work records across all pages
@@ -174,13 +175,17 @@ class OpenAlexFetcher:
         all_works = []
         
         # Convert website URL to API URL if needed
-        current_url = base_url.replace("https://openalex.org/", "https://api.openalex.org/")
-        page_num = 0
+        base_api_url = base_url.replace("https://openalex.org/", "https://api.openalex.org/")
+        
+        # Clean up any existing pagination parameters that users might have in their URLs
+        import re
+        # Remove existing page= and per-page= parameters
+        base_api_url = re.sub(r'[&?]page=\d+', '', base_api_url)
+        base_api_url = re.sub(r'[&?]per-page=\d+', '', base_api_url)
         
         # Ensure per-page is set to maximum (200)
-        if "per-page=" not in current_url:
-            separator = "&" if "?" in current_url else "?"
-            current_url += f"{separator}per-page=200"
+        separator = "&" if "?" in base_api_url else "?"
+        base_api_url += f"{separator}per-page=200"
         
         headers = {
             'User-Agent': 'OpenAlex-Fetcher/1.0 (mailto:research@university.edu)',
@@ -188,23 +193,44 @@ class OpenAlexFetcher:
         }
         
         async with aiohttp.ClientSession(headers=headers) as session:
-            while current_url:
+            page_num = 0
+            total_count = None
+            
+            while True:
                 page_num += 1
+                
+                # Add page parameter to URL
+                separator = "&" if "?" in base_api_url else "?"
+                current_url = f"{base_api_url}{separator}page={page_num}"
+                
                 data = await self.fetch_page(session, current_url)
                 
                 if not data or "results" not in data:
                     break
                 
                 works = data["results"]
+                
+                # Get total count from first page
+                if total_count is None and "meta" in data:
+                    total_count = data["meta"].get("count", 0)
+                    print(f"📊 Total available records: {total_count:,}")
+                
+                # Break if no more results
+                if len(works) == 0:
+                    break
+                
                 all_works.extend(works)
                 
                 if progress_callback:
                     progress_callback(page_num, len(all_works))
                 
-                # Get next page URL from meta
-                current_url = data.get("meta", {}).get("next_cursor")
+                # Safety check: respect max_pages limit if set
+                if max_pages and page_num >= max_pages:
+                    print(f"⚠️ Reached maximum page limit ({max_pages}). Use max_pages=None to fetch all pages.")
+                    break
                 
-                if not current_url or len(works) == 0:
+                # If we have fewer than 200 results, this is the last page
+                if len(works) < 200:
                     break
         
         return all_works
@@ -477,7 +503,7 @@ def flatten_works_to_dataframe(works: List[Dict]) -> pd.DataFrame:
     return pd.DataFrame(flattened)
 
 
-async def fetch_openalex_works(url: str, progress_callback=None, include_quality: bool = False, include_quartiles: bool = False) -> pd.DataFrame:
+async def fetch_openalex_works(url: str, progress_callback=None, include_quality: bool = False, include_quartiles: bool = False, max_pages: int = None) -> pd.DataFrame:
     """
     Main async function to fetch and flatten OpenAlex works.
     
@@ -486,12 +512,13 @@ async def fetch_openalex_works(url: str, progress_callback=None, include_quality
         progress_callback: Optional callback for progress updates
         include_quality: Whether to fetch journal quality information (OpenAlex-based metrics)
         include_quartiles: Whether to fetch journal quartile information (local CSV lookup)
+        max_pages: Optional limit on number of pages to fetch (default: None = all pages)
         
     Returns:
         pandas DataFrame with flattened works data
     """
     fetcher = OpenAlexFetcher()
-    works = await fetcher.fetch_all_pages(url, progress_callback)
+    works = await fetcher.fetch_all_pages(url, progress_callback, max_pages=max_pages)
     
     if include_quartiles:
         return flatten_works_to_dataframe_with_quartiles(works, fetcher)
